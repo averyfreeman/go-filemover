@@ -2,4 +2,6 @@
 .env
 go.mod
 go.sum
+go-filemover
+mise.toml
 
