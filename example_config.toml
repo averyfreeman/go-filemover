@@ -1,0 +1,42 @@
+# Multiple directories can be watched at one time, each with their own
+# list of file patterns. Use comma + space separation for each glob.
+#
+# Key:
+# [int] = ordered sets of configuration attributes, [0..n].
+# wd = watched directory
+# td = target directory
+# fg = file glob
+#
+# see following examples:
+
+
+[0]
+wd = "/home/user/Videos"
+td = "/mnt/c/Users/user/Videos"
+fg = "*.mp4, *.avi, *.mkv"
+
+[1]
+wd = "/home/user/Music"
+td = "/mnt/c/Users/user/Music"
+fg = "*.mp3, *.wav, *.aiff"
+
+[2]
+wd = "/home/user/Downloads"
+td = "/mnt/c/Users/user/Documents/Ubuntu_WSL_Downloads"
+fg = "*.pdf, *.docx, *.txt"
+
+[3]
+wd = "/home/user/Downloads"
+td = "/mnt/c/Users/user/vms/isos"
+fg = "*.iso"
+
+[4]
+wd = "/home/user/Videos/CNNW"
+td = "/mnt/c/Users/user/Videos/CNNW"
+fg = "*.mp4"
+
+[5]
+wd = "/home/user/Videos/MSNOW"
+td = "/mnt/c/Users/user/Videos/MSNOW"
+fg = "*.mp4"
+
