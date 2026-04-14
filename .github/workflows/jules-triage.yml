@@ -1,0 +1,17 @@
+name: Jules Issue Resolution
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  jules-resolve:
+    if: contains(github.event.issue)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dispatch Jules Agent
+        uses: google-labs-code/jules-action@main
+        with:
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          task_type: "issue-resolution"
+          issue_number: ${{ github.event.issue.number }}
