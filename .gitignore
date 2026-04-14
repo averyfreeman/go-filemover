@@ -1,5 +1,3 @@
-.git
-.env
-go.mod
-go.sum
-
+bin/
+go-filemover
+.DS_Store

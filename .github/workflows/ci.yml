@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run Build
+        run: make build
+
+      - name: Run Tests
+        run: make test
+
+      - name: Run Fmt Check
+        run: |
+          if [ -n "$(go fmt ./...)" ]; then
+            echo "Go code is not formatted. Please run 'make fmt'."
+            exit 1
+          fi

@@ -1,11 +1,10 @@
-// Package main provides a cross-platform file watching and moving utility.
+// Package main provides the entry point for the go-filemover utility.
+// go-filemover is a WSL2 native file watcher that moves files to a target directory (often on the Windows host) based on glob patterns.
 package main
 
 import (
 	"context"
 	"fmt"
-	"hash/crc32"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -19,64 +18,54 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fsnotify/fsnotify"
-	"github.com/pelletier/go-toml/v2"
+	"github.com/jules/go-filemover/internal/config"
+	"github.com/jules/go-filemover/internal/fs"
+	"github.com/jules/go-filemover/internal/mover"
 	"github.com/spf13/pflag"
 )
 
-type TaskConfig struct {
-	Wd string `toml:"wd"`
-	Td string `toml:"td"`
-	Fg string `toml:"fg"`
-}
+const pidFilePath = "/tmp/go-filemover.pid"
 
-type Config map[string]TaskConfig
-
-// Global application state
 var (
-	currentLogLevel int
-	pidFilePath     string
+	currentLogLevel = 4
+	fileMover       *mover.Mover
+	filesystem      fs.FileSystem
 )
 
-func main() {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatalf("Fatal: Cannot determine user home directory: %v", err)
-	}
-	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
-	if runtimeDir == "" {
-		runtimeDir = fmt.Sprintf("/run/user/%d", os.Getuid())
-	}
-	pidFilePath = filepath.Join(runtimeDir, "go-filemover", "go-filemover.pid")
-	defaultConfigPath := filepath.Join(homeDir, ".config", "go-filemover", "config.toml")
-	
-	// 1. Define CLI Flags using pflag
-	help := pflag.BoolP("help", "h", false, "Show this menu.")
-	exitFlag := pflag.BoolP("exit", "e", false, "Gracefully shutdown background instances.")
-	killFlag := pflag.BoolP("kill", "k", false, "Hard stop background instances.")
-	configFlag := pflag.StringP("config", "c", defaultConfigPath, "Start using alternative configuration file.")
-	debugFlag := pflag.BoolP("debug", "d", false, "Start in foreground with loglevel 7.")
-	logLevelFlag := pflag.IntP("loglevel", "l", 4, "Specify loglevel Levels: 1 through 7 (7 being most verbose).")
-	verboseFlag := pflag.CountP("verbose", "v", "Increase verbosity (e.g. -vv equals loglevel 6).")
-	
-	wdFlag := pflag.String("wd", "", "Watched Directory (Requires -td and -fg)")
-	tdFlag := pflag.String("td", "", "Target Directory (Requires -wd and -fg)")
-	fgFlag := pflag.String("fg", "", "File Glob (Requires -wd and -td)")
+func init() {
+	filesystem = fs.OSFileSystem{}
+	fileMover = mover.NewMover(filesystem)
+}
 
-	pflag.Usage = printBeautifulHelp
+func main() {
+	// 1. Define CLI Flags
+	helpFlag := pflag.BoolP("help", "h", false, "Show help menu")
+	exitFlag := pflag.BoolP("exit", "e", false, "Gracefully stop background instances")
+	killFlag := pflag.BoolP("kill", "k", false, "Force stop background instances")
+	configFlag := pflag.StringP("config", "c", "config.toml", "Path to configuration file")
+	debugFlag := pflag.BoolP("debug", "d", false, "Enable debug mode (loglevel 7, foreground)")
+	logLevelFlag := pflag.IntP("loglevel", "l", 4, "Set log level (1-7)")
+	verboseFlag := pflag.CountP("verbose", "v", "Increase verbosity")
+
+	// Inline task overrides
+	wdFlag := pflag.String("wd", "", "Watched directory (inline override)")
+	tdFlag := pflag.String("td", "", "Target directory (inline override)")
+	fgFlag := pflag.String("fg", "", "File glob pattern (inline override)")
+
 	pflag.Parse()
 
-	if *help {
-		pflag.Usage()
-		os.Exit(0)
+	// 2. Handle Help & Process Management
+	if *helpFlag {
+		printBeautifulHelp()
+		return
 	}
 
-	// 2. Handle Process Control Flags
 	if *exitFlag || *killFlag {
 		manageBackgroundProcess(*exitFlag, *killFlag)
-		os.Exit(0)
+		return
 	}
 
-	// 3. Resolve Log Levels
+	// 3. Set Log Level
 	currentLogLevel = *logLevelFlag
 	if *verboseFlag > 0 {
 		currentLogLevel += *verboseFlag
@@ -99,19 +88,17 @@ func main() {
 	}
 
 	// 5. Configuration Resolution (CLI Overrides TOML)
-	var cfg Config
+	var cfg config.Config
 	if *wdFlag != "" && *tdFlag != "" && *fgFlag != "" {
 		sysLog(6, "Bypassing config file. Using inline CLI arguments.")
-		cfg = Config{
+		cfg = config.Config{
 			"0": {Wd: *wdFlag, Td: *tdFlag, Fg: *fgFlag},
 		}
 	} else {
-		configData, err := os.ReadFile(*configFlag)
+		var err error
+		cfg, err = config.LoadConfig(*configFlag)
 		if err != nil {
-			log.Fatalf("Fatal: Could not read config file at %s: %v", *configFlag, err)
-		}
-		if err := toml.Unmarshal(configData, &cfg); err != nil {
-			log.Fatalf("Fatal: Failed to parse TOML configuration: %v", err)
+			log.Fatalf("Fatal: Could not load configuration: %v", err)
 		}
 	}
 
@@ -133,12 +120,11 @@ func main() {
 
 	for id, task := range cfg {
 		wg.Add(1)
-		
-		task.Wd = os.ExpandEnv(task.Wd)
-		task.Td = os.ExpandEnv(task.Td)
+
+		task.ExpandPaths()
 
 		// Create target directory if it does not exist
-		if err := os.MkdirAll(task.Td, 0755); err != nil {
+		if err := filesystem.MkdirAll(task.Td, 0755); err != nil {
 			sysLog(1, "[Task %s] Failed to create target directory %s: %v", id, task.Td, err)
 			continue
 		}
@@ -146,7 +132,7 @@ func main() {
 		initMsg := fmt.Sprintf("Watching: %s\nTarget: %s\nPattern: %s", task.Wd, task.Td, task.Fg)
 		notifyWindows(fmt.Sprintf("go-filemover Ready [Task %s]", id), initMsg)
 
-		go func(taskID string, t TaskConfig) {
+		go func(taskID string, t config.TaskConfig) {
 			defer wg.Done()
 			watchDirectory(ctx, taskID, t)
 		}(id, task)
@@ -192,7 +178,7 @@ func printBeautifulHelp() {
 	for _, f := range flags {
 		fmt.Printf("  %-35s %s\n", flagStyle.Render(f.flag), descStyle.Render(f.desc))
 	}
-	
+
 	fmt.Println(noteStyle.Render("\n  Note: -wd, -td, and -fg bypass the configuration file (useful for debugging)."))
 	fmt.Println()
 }
@@ -229,11 +215,11 @@ func manageBackgroundProcess(graceful bool, hardKill bool) {
 func writePIDFile() {
 	pid := os.Getpid()
 	dir := filepath.Dir(pidFilePath)
-	os.MkdirAll(dir, 0755)
+	filesystem.MkdirAll(dir, 0755)
 	os.WriteFile(pidFilePath, []byte(fmt.Sprintf("%d", pid)), 0644)
 }
 
-func watchDirectory(ctx context.Context, taskID string, task TaskConfig) {
+func watchDirectory(ctx context.Context, taskID string, task config.TaskConfig) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		sysLog(1, "Error creating watcher for Task %s: %v", taskID, err)
@@ -253,37 +239,32 @@ func watchDirectory(ctx context.Context, taskID string, task TaskConfig) {
 	for {
 		select {
 		case <-ctx.Done():
-			return 
+			return
 		case event, ok := <-watcher.Events:
-			if !ok { return }
+			if !ok {
+				return
+			}
 
 			if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {
 				handleFileEvent(task, event.Name)
 			}
 		case err, ok := <-watcher.Errors:
-			if !ok { return }
+			if !ok {
+				return
+			}
 			sysLog(2, "[Task %s] Watcher error: %v", taskID, err)
 		}
 	}
 }
 
-func handleFileEvent(task TaskConfig, filePath string) {
+func handleFileEvent(task config.TaskConfig, filePath string) {
 	fileName := filepath.Base(filePath)
-	
-	// MULTI-GLOB MATCHING LOGIC
-	patterns := strings.Split(task.Fg, ",")
-	matched := false
-	for _, p := range patterns {
-		p = strings.TrimSpace(p) // Strip whitespace from comma delimitation
-		m, err := filepath.Match(p, fileName)
-		if err != nil {
-			sysLog(2, "Invalid glob pattern '%s': %v", p, err)
-			continue
-		}
-		if m {
-			matched = true
-			break
-		}
+
+	patterns := task.GetPatterns()
+	matched, err := fileMover.MatchGlob(patterns, fileName)
+	if err != nil {
+		sysLog(2, "Glob matching error: %v", err)
+		return
 	}
 
 	if !matched {
@@ -295,24 +276,24 @@ func handleFileEvent(task TaskConfig, filePath string) {
 
 	targetPath := filepath.Join(task.Td, fileName)
 
-	if fileExists(targetPath) {
-		srcCRC, err1 := calculateCRC32(filePath)
-		dstCRC, err2 := calculateCRC32(targetPath)
+	if fileMover.FileExists(targetPath) {
+		srcCRC, err1 := fileMover.CalculateCRC32(filePath)
+		dstCRC, err2 := fileMover.CalculateCRC32(targetPath)
 
 		if err1 == nil && err2 == nil && srcCRC == dstCRC {
 			sysLog(5, "Identical file exists at target. Removing source: %s", fileName)
 			notifyWindows("Duplicate Ignored", fmt.Sprintf("Cleaned up duplicate: %s", fileName))
-			os.Remove(filePath)
+			filesystem.Remove(filePath)
 			return
 		}
-		
-		targetPath = generateUniquePath(targetPath)
+
+		targetPath = fileMover.GenerateUniquePath(targetPath)
 		sysLog(5, "Filename collision detected. Auto-renaming to: %s", filepath.Base(targetPath))
 	}
 
 	notifyWindows("File Detected", fmt.Sprintf("Attempting move: %s", filepath.Base(targetPath)))
-	
-	if err := moveFile(filePath, targetPath); err != nil {
+
+	if err := fileMover.MoveFile(filePath, targetPath); err != nil {
 		sysLog(1, "Failed to move %s: %v", fileName, err)
 		notifyWindows("Move Failed", fmt.Sprintf("Failed to move %s: %v", fileName, err))
 	} else {
@@ -321,10 +302,9 @@ func handleFileEvent(task TaskConfig, filePath string) {
 	}
 }
 
-func processExistingFiles(task TaskConfig) {
-	patterns := strings.Split(task.Fg, ",")
+func processExistingFiles(task config.TaskConfig) {
+	patterns := task.GetPatterns()
 	for _, p := range patterns {
-		p = strings.TrimSpace(p)
 		pattern := filepath.Join(task.Wd, p)
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
@@ -336,90 +316,6 @@ func processExistingFiles(task TaskConfig) {
 			handleFileEvent(task, match)
 		}
 	}
-}
-
-func calculateCRC32(filePath string) (uint32, error) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	hasher := crc32.NewIEEE()
-	if _, err := io.Copy(hasher, f); err != nil {
-		return 0, err
-	}
-
-	return hasher.Sum32(), nil
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return !info.IsDir()
-}
-
-func generateUniquePath(originalPath string) string {
-	dir := filepath.Dir(originalPath)
-	ext := filepath.Ext(originalPath)
-	base := strings.TrimSuffix(filepath.Base(originalPath), ext)
-
-	counter := 1
-	newPath := originalPath
-	for {
-		if !fileExists(newPath) {
-			return newPath
-		}
-		newPath = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", base, counter, ext))
-		counter++
-	}
-}
-
-func moveFile(src, dst string) error {
-	err := os.Rename(src, dst)
-	if err == nil {
-		return nil 
-	}
-
-	if linkErr, ok := err.(*os.LinkError); ok {
-		if linkErr.Err == syscall.EXDEV {
-			return copyAndDelete(src, dst)
-		}
-	}
-
-	return copyAndDelete(src, dst)
-}
-
-func copyAndDelete(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("failed to open source: %w", err)
-	}
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		srcFile.Close()
-		return fmt.Errorf("failed to create destination: %w", err)
-	}
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		srcFile.Close()
-		dstFile.Close()
-		return fmt.Errorf("failed during byte copy: %w", err)
-	}
-
-	srcFile.Close()
-	if err := dstFile.Close(); err != nil {
-		return fmt.Errorf("failed to close destination file: %w", err)
-	}
-
-	if err := os.Remove(src); err != nil {
-		return fmt.Errorf("copied successfully, but failed to remove original: %w", err)
-	}
-
-	return nil
 }
 
 func getPowerShellPath() string {
@@ -447,7 +343,7 @@ $balloon.Dispose()
 
 	psPath := getPowerShellPath()
 	cmd := exec.Command(psPath, "-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript)
-	
+
 	if err := cmd.Start(); err != nil {
 		sysLog(1, "Notification error: failed to invoke PowerShell: %v", err)
 	}
