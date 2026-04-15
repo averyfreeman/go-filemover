@@ -1,6 +1,6 @@
 module github.com/jules/go-filemover
 
-go 1.24.3
+go 1.26
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0
