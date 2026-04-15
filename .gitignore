@@ -1,3 +1,10 @@
 bin/
 go-filemover
 .DS_Store
+.git
+.env
+go.mod
+go.sum
+go-filemover
+mise.toml
+
