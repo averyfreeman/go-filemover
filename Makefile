@@ -1,10 +1,11 @@
-.PHONY: build test clean install lint fmt
+.PHONY: build test clean install lint fmt docs
 
 # Default target
 all: build
 
 # Build the binary
 build:
+	mkdir -p bin
 	go build -o bin/go-filemover ./cmd/go-filemover/main.go
 
 # Run unit tests
@@ -34,9 +35,9 @@ lint:
 # Generate documentation export
 docs:
 	@echo "# API Documentation" > API.md
-	@echo "## Internal/Config" >> API.md
+	@printf "\n## Internal/Config\n" >> API.md
 	@go doc -all ./internal/config >> API.md
-	@echo "\n## Internal/Mover" >> API.md
+	@printf "\n## Internal/Mover\n" >> API.md
 	@go doc -all ./internal/mover >> API.md
-	@echo "\n## Internal/FS" >> API.md
+	@printf "\n## Internal/FS\n" >> API.md
 	@go doc -all ./internal/fs >> API.md

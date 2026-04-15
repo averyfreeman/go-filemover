@@ -1,4 +1,5 @@
 # API Documentation
+
 ## Internal/Config
 package config // import "github.com/jules/go-filemover/internal/config"
 
@@ -28,7 +29,7 @@ func (t *TaskConfig) ExpandPaths()
 
 func (t *TaskConfig) GetPatterns() []string
     GetPatterns splits the comma-separated Fg string into a slice of trimmed
-    glob patterns.
+    glob patterns. Empty patterns are filtered out.
 
 
 ## Internal/Mover
@@ -52,7 +53,8 @@ func (m *Mover) CalculateCRC32(path string) (uint32, error)
 
 func (m *Mover) CopyAndDelete(src, dst string) error
     CopyAndDelete performs a manual file move by copying data and then removing
-    the source file.
+    the source file. If copying fails, it attempts to remove the partially
+    created destination file.
 
 func (m *Mover) FileExists(path string) bool
     FileExists returns true if a file exists at the given path and is not a
@@ -69,8 +71,9 @@ func (m *Mover) MatchGlob(patterns []string, filename string) (bool, error)
 
 func (m *Mover) MoveFile(src, dst string) error
     MoveFile attempts to move a file from src to dst. It first tries
-    fs.FileSystem.Rename, and falls back to Mover.CopyAndDelete if a
-    cross-device link error (EXDEV) is encountered.
+    fs.FileSystem.Rename, and falls back to Mover.CopyAndDelete only if a
+    cross-device link error (EXDEV) is encountered. For all other errors,
+    the original error from Rename is returned unchanged.
 
 
 ## Internal/FS
@@ -95,7 +98,7 @@ type FileSystem interface {
 	Open(name string) (File, error)
 	// Create creates or truncates the named file.
 	Create(name string) (File, error)
-	// Stat returns a [os.FileInfo] describing the named file.
+	// Stat returns an [os.FileInfo] describing the named file.
 	Stat(name string) (os.FileInfo, error)
 	// Rename renames (moves) oldpath to newpath.
 	Rename(oldpath, newpath string) error

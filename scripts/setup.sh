@@ -3,6 +3,9 @@
 # fetch dependencies
 go mod tidy
 
+# Create bin directory
+mkdir -p bin
+
 # build a local binary
 go build -o bin/go-filemover ./cmd/go-filemover/main.go
 

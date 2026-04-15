@@ -65,7 +65,7 @@ fg = "Screenshot_*.png"
 ### Options
 
 - `-h, --help`: Show help menu.
-- `-e, --exit`: Gracefully shutdown background instances.
+- `-e, --exit`: Gracefully shut down background instances.
 - `-k, --kill`: Hard stop background instances.
 - `-c, --config`: Use an alternative configuration file.
 - `-d, --debug`: Start in foreground with verbose logging (loglevel 7).

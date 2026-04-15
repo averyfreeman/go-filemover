@@ -82,8 +82,9 @@ func (m *Mover) CalculateCRC32(path string) (uint32, error) {
 }
 
 // MoveFile attempts to move a file from src to dst.
-// It first tries [fs.FileSystem.Rename], and falls back to [Mover.CopyAndDelete] if a cross-device
-// link error (EXDEV) is encountered.
+// It first tries [fs.FileSystem.Rename], and falls back to [Mover.CopyAndDelete] only if a
+// cross-device link error (EXDEV) is encountered. For all other errors, the original error
+// from Rename is returned unchanged.
 func (m *Mover) MoveFile(src, dst string) error {
 	err := m.fs.Rename(src, dst)
 	if err == nil {
@@ -97,11 +98,11 @@ func (m *Mover) MoveFile(src, dst string) error {
 		}
 	}
 
-	// Fallback for other potential cross-device issues or environments
-	return m.CopyAndDelete(src, dst)
+	return err
 }
 
 // CopyAndDelete performs a manual file move by copying data and then removing the source file.
+// If copying fails, it attempts to remove the partially created destination file.
 func (m *Mover) CopyAndDelete(src, dst string) error {
 	srcFile, err := m.fs.Open(src)
 	if err != nil {
@@ -113,15 +114,16 @@ func (m *Mover) CopyAndDelete(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination: %w", err)
 	}
-	defer dstFile.Close()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		dstFile.Close()
+		m.fs.Remove(dst) // Cleanup partial copy
 		return fmt.Errorf("failed during byte copy: %w", err)
 	}
 
-	// Close files before deleting source
-	srcFile.Close()
-	dstFile.Close()
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("failed to close destination file: %w", err)
+	}
 
 	if err := m.fs.Remove(src); err != nil {
 		return fmt.Errorf("copied successfully, but failed to remove original: %w", err)

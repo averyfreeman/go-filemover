@@ -13,7 +13,7 @@ type FileSystem interface {
 	Open(name string) (File, error)
 	// Create creates or truncates the named file.
 	Create(name string) (File, error)
-	// Stat returns a [os.FileInfo] describing the named file.
+	// Stat returns an [os.FileInfo] describing the named file.
 	Stat(name string) (os.FileInfo, error)
 	// Rename renames (moves) oldpath to newpath.
 	Rename(oldpath, newpath string) error

@@ -41,11 +41,15 @@ func (t *TaskConfig) ExpandPaths() {
 }
 
 // GetPatterns splits the comma-separated Fg string into a slice of trimmed glob patterns.
+// Empty patterns are filtered out.
 func (t *TaskConfig) GetPatterns() []string {
 	parts := strings.Split(t.Fg, ",")
 	patterns := make([]string, 0, len(parts))
 	for _, p := range parts {
-		patterns = append(patterns, strings.TrimSpace(p))
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			patterns = append(patterns, trimmed)
+		}
 	}
 	return patterns
 }
