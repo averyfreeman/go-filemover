@@ -6,11 +6,11 @@ all: build
 # Build the binary
 build:
 	mkdir -p bin
-	go build -o bin/go-filemover ./cmd/go-filemover/main.go
+	go build -o bin/go-filemover ./cmd/go-filemover/
 
 # Run unit tests
 test:
-	go test -v ./...
+	go test -v ./cmd/go-filemover/
 
 # Clean build artifacts
 clean:
@@ -18,16 +18,16 @@ clean:
 
 # Install the binary to GOBIN
 install:
-	go install ./cmd/go-filemover
+	go install ./cmd/go-filemover/
 
 # Format the code
 fmt:
-	go fmt ./...
+	go fmt ./cmd/go-filemover/
 
 # Lint the code using golangci-lint
 lint:
 	@if command -v golangci-lint > /dev/null; then \
-		golangci-lint run; \
+		golangci-lint run ./cmd/go-filemover/...; \
 	else \
 		echo "golangci-lint not found, skipping..."; \
 	fi
@@ -35,9 +35,5 @@ lint:
 # Generate documentation export
 docs:
 	@echo "# API Documentation" > API.md
-	@printf "\n## Internal/Config\n" >> API.md
-	@go doc -all ./internal/config >> API.md
-	@printf "\n## Internal/Mover\n" >> API.md
-	@go doc -all ./internal/mover >> API.md
-	@printf "\n## Internal/FS\n" >> API.md
-	@go doc -all ./internal/fs >> API.md
+	@printf "\n## Go-Filemover API\n" >> API.md
+	@go doc -all ./cmd/go-filemover/ >> API.md

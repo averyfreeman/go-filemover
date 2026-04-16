@@ -18,9 +18,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fsnotify/fsnotify"
-	"github.com/jules/go-filemover/internal/config"
-	"github.com/jules/go-filemover/internal/fs"
-	"github.com/jules/go-filemover/internal/mover"
 	"github.com/spf13/pflag"
 )
 
@@ -28,13 +25,13 @@ const pidFilePath = "/tmp/go-filemover.pid"
 
 var (
 	currentLogLevel = 4
-	fileMover       *mover.Mover
-	filesystem      fs.FileSystem
+	fileMover       *Mover
+	filesystem      FileSystem
 )
 
 func init() {
-	filesystem = fs.OSFileSystem{}
-	fileMover = mover.NewMover(filesystem)
+	filesystem = OSFileSystem{}
+	fileMover = NewMover(filesystem)
 }
 
 func main() {
@@ -88,15 +85,15 @@ func main() {
 	}
 
 	// 5. Configuration Resolution (CLI Overrides TOML)
-	var cfg config.Config
+	var cfg Config
 	if *wdFlag != "" && *tdFlag != "" && *fgFlag != "" {
 		sysLog(6, "Bypassing config file. Using inline CLI arguments.")
-		cfg = config.Config{
+		cfg = Config{
 			"0": {Wd: *wdFlag, Td: *tdFlag, Fg: *fgFlag},
 		}
 	} else {
 		var err error
-		cfg, err = config.LoadConfig(*configFlag)
+		cfg, err = LoadConfig(*configFlag)
 		if err != nil {
 			log.Fatalf("Fatal: Could not load configuration: %v", err)
 		}
@@ -132,7 +129,7 @@ func main() {
 		initMsg := fmt.Sprintf("Watching: %s\nTarget: %s\nPattern: %s", task.Wd, task.Td, task.Fg)
 		notifyWindows(fmt.Sprintf("go-filemover Ready [Task %s]", id), initMsg)
 
-		go func(taskID string, t config.TaskConfig) {
+		go func(taskID string, t TaskConfig) {
 			defer wg.Done()
 			watchDirectory(ctx, taskID, t)
 		}(id, task)
@@ -219,7 +216,7 @@ func writePIDFile() {
 	os.WriteFile(pidFilePath, []byte(fmt.Sprintf("%d", pid)), 0644)
 }
 
-func watchDirectory(ctx context.Context, taskID string, task config.TaskConfig) {
+func watchDirectory(ctx context.Context, taskID string, task TaskConfig) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		sysLog(1, "Error creating watcher for Task %s: %v", taskID, err)
@@ -257,7 +254,7 @@ func watchDirectory(ctx context.Context, taskID string, task config.TaskConfig) 
 	}
 }
 
-func handleFileEvent(task config.TaskConfig, filePath string) {
+func handleFileEvent(task TaskConfig, filePath string) {
 	fileName := filepath.Base(filePath)
 
 	patterns := task.GetPatterns()
@@ -302,7 +299,7 @@ func handleFileEvent(task config.TaskConfig, filePath string) {
 	}
 }
 
-func processExistingFiles(task config.TaskConfig) {
+func processExistingFiles(task TaskConfig) {
 	patterns := task.GetPatterns()
 	for _, p := range patterns {
 		pattern := filepath.Join(task.Wd, p)

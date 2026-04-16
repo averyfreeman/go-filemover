@@ -1,4 +1,4 @@
-module github.com/jules/go-filemover
+module go-filemover
 
 go 1.22
 

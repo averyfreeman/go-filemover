@@ -30,7 +30,7 @@ jobs:
 
       - name: Run Fmt Check
         run: |
-          if [ -n "$(go fmt ./...)" ]; then
+          if [ -n "$(go fmt ./cmd/go-filemover/...)" ]; then
             echo "Go code is not formatted. Please run 'make fmt'."
             exit 1
           fi

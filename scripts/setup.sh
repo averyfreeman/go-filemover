@@ -7,7 +7,7 @@ go mod tidy
 mkdir -p bin
 
 # build a local binary
-go build -o bin/go-filemover ./cmd/go-filemover/main.go
+go build -o bin/go-filemover ./cmd/go-filemover/
 
 # replace ambiguous 'user' folder name with your own $USER name 
 sed -i "s|user|$USER|g" example_config.toml
