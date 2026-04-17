@@ -19,6 +19,9 @@ jobs:
         with:
           go-version: 'stable'
 
+      - name: Initialize Module
+        run: make init
+
       - name: Verify dependencies
         run: go mod verify
 

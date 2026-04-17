@@ -1,13 +1,7 @@
 #!/bin/sh
 
-# fetch dependencies
-go mod tidy
-
-# Create bin directory
-mkdir -p bin
-
-# build a local binary
-go build -o bin/go-filemover ./cmd/go-filemover/
+# build the binary using Makefile (handles init)
+make build
 
 # replace ambiguous 'user' folder name with your own $USER name 
 sed -i "s|user|$USER|g" example_config.toml
